@@ -1,0 +1,35 @@
+# =========================================================================
+# Render Blueprint — Marsexpress24 bot
+# https://render.com/docs/blueprint-spec
+#
+# Push this file to your GitHub repo, click "New +" → "Blueprint" in Render,
+# and Render will create the service automatically. You'll be prompted to
+# fill in the four secrets below.
+# =========================================================================
+
+services:
+  - type: web
+    name: marsexpress24-bot
+    runtime: node
+    plan: free
+    region: frankfurt           # closest free region to Uzbekistan
+    rootDir: bot
+    autoDeploy: true            # push to main → redeploy
+    buildCommand: npm install
+    # Migrations run on every start but are idempotent (tracked in _migrations).
+    startCommand: npm run migrate && npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOT_TOKEN
+        sync: false             # ← fill in via Render dashboard (secret)
+      - key: ADMIN_ID
+        sync: false             # ← fill in (Telegram numeric user id)
+      - key: DATABASE_URL
+        sync: false             # ← fill in (Neon connection string)
+      # WEBAPP_URL and WEBHOOK_DOMAIN default to RENDER_EXTERNAL_URL,
+      # so you don't have to set them. Override only if you attach a
+      # custom domain to the service.
+      - key: ALLOWED_ORIGINS
+        value: https://web.telegram.org,https://t.me

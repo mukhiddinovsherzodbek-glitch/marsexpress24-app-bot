@@ -1,0 +1,26 @@
+{
+  "name": "marsexpress24-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Marsexpress24 fast-food Telegram bot + Mini App backend",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "migrate": "node scripts/migrate.js",
+    "migrate:reset": "node scripts/migrate.js --reset"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "dotenv": "^16.4.7",
+    "helmet": "^8.0.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.5.0"
+  },
+  "devDependencies": {}
+}
