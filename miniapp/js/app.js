@@ -755,7 +755,7 @@
         };
     }
 
-    function submitOrder(evt) {
+    async function submitOrder(evt) {
         evt.preventDefault();
         updateConfirmEnabled();
         if ($('#confirm-btn').disabled) return;
@@ -771,22 +771,33 @@
             return;
         }
 
-        if (!tg || typeof tg.sendData !== 'function') {
-            showToast('Mini App Telegram orqali ochilishi kerak.', 'error');
-            return;
-        }
+        // Inline-keyboard Mini Apps can't use sendData() — submit via REST.
+        const btn = $('#confirm-btn');
+        const originalLabel = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ Yuborilmoqda…';
+        haptic('light');
 
-        const payload = buildOrderPayload();
-        haptic('success');
         try {
-            tg.sendData(JSON.stringify(payload));
+            const res = await api.createOrder(buildOrderPayload());
+            if (!res || !res.ok) {
+                throw new Error((res && res.error) || 'Buyurtma rad etildi');
+            }
+            haptic('success');
+            // Order saved + customer/admin notified by the server.
+            cart.clear();
+            closeOverlay('checkout');
+            closeOverlay('cart');
+            showToast('✅ Buyurtmangiz qabul qilindi! Rahmat 🧡');
+            // Close the Mini App shortly after, so the user sees the toast.
+            setTimeout(() => { try { tg && tg.close(); } catch {} }, 1500);
         } catch (err) {
-            console.error('sendData failed', err);
-            showToast('Buyurtmani yuborishda xato. Qayta urinib ko\'ring.', 'error');
-            return;
+            console.error('createOrder failed', err);
+            haptic('error');
+            showToast(err.message || 'Buyurtmani yuborishda xato. Qayta urinib ko\'ring.', 'error');
+            btn.disabled = false;
+            btn.textContent = originalLabel;
         }
-        // After sendData, Telegram closes the Mini App. Still — clean local state.
-        cart.clear();
     }
 
     // ---------------------------------------------------------------
@@ -797,6 +808,7 @@
         new:        'Yangi ⏳',
         confirmed:  'Tasdiqlangan ✅',
         accepted:   'Tasdiqlangan ✅',
+        delivering: 'Yo\'lda 🚴',
         delivered:  'Yetkazildi 🚀',
         cancelled:  'Bekor qilindi ❌',
     };

@@ -114,14 +114,15 @@ bot.start(async (ctx) => {
     const greetingText =
         'Assalomu alaykum! Marsexpress24 ga xush kelibsiz 🍔\n' +
         'Buyurtma berish uchun quyidagi tugmani bosing:';
-    // Inject the user's Telegram id into the Mini App URL. Some clients
-    // don't deliver signed initData (no tgWebAppData), so the Mini App
-    // can't identify the user on its own — this gives it a reliable id
-    // to show "My orders". Reading orders by this id is low-risk.
+    // Inline keyboard attached UNDER the greeting message (not a separate
+    // reply keyboard). Inline web_app buttons can't use sendData(), so the
+    // Mini App submits orders via POST /api/orders instead. The user's id
+    // is injected into the URL so the Mini App can identify them without
+    // relying on initData.
     const greetingMarkup = WEBAPP_URL
-        ? Markup.keyboard([
-              Markup.button.webApp('🛍️ Buyurtma berish', webAppUrlForUser(ctx.from.id)),
-          ]).resize()
+        ? Markup.inlineKeyboard([
+              [Markup.button.webApp('🛍️ Buyurtma berish', webAppUrlForUser(ctx.from.id))],
+          ])
         : undefined;
 
     // 1) Welcome image. Priority:
@@ -133,7 +134,9 @@ bot.start(async (ctx) => {
     let photoSent = false;
     if (WELCOME_PHOTO_FILE_ID) {
         try {
-            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID);
+            // Attach remove_keyboard so any leftover reply keyboard from a
+            // previous (pre-inline) session is cleared on this first message.
+            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID, Markup.removeKeyboard());
             photoSent = true;
         } catch (err) {
             console.warn('[/start] file_id photo rejected, falling back to disk:', err.message);
@@ -165,32 +168,30 @@ bot.start(async (ctx) => {
     await ctx.reply(greetingText, greetingMarkup);
 });
 
-// --- web_app_data: order received from Mini App --------------------------
-bot.on(message('web_app_data'), async (ctx) => {
-    const raw = ctx.message.web_app_data.data;
-
-    let order;
-    try {
-        order = JSON.parse(raw);
-    } catch {
-        await ctx.reply('⚠️ Buyurtma ma\'lumotlari yaroqsiz formatda.');
-        return;
-    }
-
+// -------------------------------------------------------------------------
+// processOrder — shared order pipeline used by BOTH:
+//   • the legacy web_app_data handler (reply-keyboard sendData), and
+//   • the new POST /api/orders endpoint (inline-keyboard Mini App).
+//
+// Validates, re-derives totals/delivery server-side, persists, then
+// notifies the customer (by their telegram id) and the admin. Returns
+// a plain result object so each caller can respond appropriately.
+//
+// @param {object}  order     the order payload from the Mini App
+// @param {number}  userId    the customer's telegram id (trusted source)
+// @param {object}  telegram  bot.telegram instance for sending messages
+// -------------------------------------------------------------------------
+async function processOrder(order, userId, telegram) {
     const validationError = validateOrder(order);
-    if (validationError) {
-        await ctx.reply(`⚠️ ${validationError}`);
-        return;
-    }
+    if (validationError) return { ok: false, error: validationError };
 
-    // Guard against orders sent outside working hours — the Mini App also
-    // checks, but a stale tab or replayed payload could still hit us.
     if (!isWorkingHours()) {
-        await ctx.reply(
-            'Uzr, hozir qabul vaqtimiz tugagan.\n' +
-            `Ish vaqtimiz: ${WORKING_HOURS_LABEL} (Toshkent vaqti)`
-        );
-        return;
+        return {
+            ok: false,
+            error:
+                'Uzr, hozir qabul vaqtimiz tugagan. ' +
+                `Ish vaqtimiz: ${WORKING_HOURS_LABEL} (Toshkent vaqti)`,
+        };
     }
 
     const {
@@ -200,48 +201,38 @@ bot.on(message('web_app_data'), async (ctx) => {
         longitude = null,
         address_text,
         items,
-        total_amount,
         comment = null,
     } = order;
 
-    // Normalise optional comment — trim, cap length, drop if empty.
     const orderComment =
         typeof comment === 'string' && comment.trim() ? comment.trim().slice(0, 500) : null;
 
-    // Re-derive subtotal from items so we never trust the client's number
-    // for the minimum-order check or the delivered-to-admin total.
+    // Never trust the client's total — re-derive from item prices.
     const subtotal = items.reduce(
         (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0),
         0
     );
     if (subtotal < MIN_ORDER_TOTAL) {
-        await ctx.reply(
-            `⚠️ Minimal buyurtma summasi: ${formatPrice(MIN_ORDER_TOTAL)} so'm.\n` +
-            `Sizning savatingiz: ${formatPrice(subtotal)} so'm.`
-        );
-        return;
+        return {
+            ok: false,
+            error:
+                `Minimal buyurtma summasi: ${formatPrice(MIN_ORDER_TOTAL)} so'm. ` +
+                `Sizning savatingiz: ${formatPrice(subtotal)} so'm.`,
+        };
     }
 
-    // Re-derive distance + delivery fee on the server. If the client
-    // sent coordinates we use them; otherwise delivery is unknown and
-    // will be settled by phone (we still accept the order).
+    // Delivery fee from coords (else settled by phone).
     let distanceKm = null;
     let deliveryFee = 0;
     let deliveryUnknown = false;
     if (latitude != null && longitude != null) {
-        distanceKm = haversineKm(
-            RESTAURANT_LAT, RESTAURANT_LON,
-            Number(latitude), Number(longitude)
-        );
+        distanceKm = haversineKm(RESTAURANT_LAT, RESTAURANT_LON, Number(latitude), Number(longitude));
         deliveryFee = deliveryFeeFor(distanceKm);
     } else {
-        // No coords — admin will quote delivery on the phone.
         deliveryUnknown = true;
     }
-    // Authoritative grand total. The client's `total_amount` is informational.
     const grandTotal = subtotal + deliveryFee;
 
-    // Save and respond.
     let orderId;
     let createdAt;
     try {
@@ -252,82 +243,83 @@ bot.on(message('web_app_data'), async (ctx) => {
              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
              RETURNING id, created_at`,
             [
-                ctx.from.id,
+                userId,
                 customer_name,
                 customer_phone,
                 latitude,
                 longitude,
                 address_text,
                 JSON.stringify(items),
-                grandTotal, // includes delivery fee
+                grandTotal,
                 orderComment,
             ]
         );
         orderId = rows[0].id;
         createdAt = rows[0].created_at;
     } catch (err) {
-        console.error('[web_app_data] DB insert failed:', err);
-        await ctx.reply('⚠️ Buyurtmani saqlashda xato yuz berdi. Iltimos, qayta urinib ko\'ring.');
-        return;
+        console.error('[order] DB insert failed:', err);
+        return { ok: false, error: 'Buyurtmani saqlashda xato yuz berdi. Iltimos, qayta urinib ko\'ring.' };
     }
 
-    // Customer confirmation.
-    await ctx.reply(
-        '✅ Buyurtmangiz muvaffaqiyatli qabul qilindi!\n' +
-        '🍔 Tez orada kuryer siz bilan bog\'lanadi.\n' +
-        'Rahmat! Marsexpress24 🧡',
-        // Hide the reply keyboard after the order — feels cleaner.
-        Markup.removeKeyboard()
-    );
-
-    // If a location was sent with the order, echo it back to the customer
-    // as a real Telegram location pin. The customer can tap it to open
-    // Yandex / Google / Apple Maps and verify it's correct.
-    if (latitude != null && longitude != null) {
-        try {
-            await ctx.replyWithLocation(Number(latitude), Number(longitude));
-        } catch (err) {
-            console.error('[web_app_data] customer location failed:', err.message);
+    // Customer confirmation — message their chat directly (works whether
+    // the order came via sendData or via the REST endpoint).
+    try {
+        await telegram.sendMessage(
+            userId,
+            '✅ Buyurtmangiz muvaffaqiyatli qabul qilindi!\n' +
+            '🍔 Tez orada kuryer siz bilan bog\'lanadi.\n' +
+            'Rahmat! Marsexpress24 🧡'
+        );
+        if (latitude != null && longitude != null) {
+            await telegram.sendLocation(userId, Number(latitude), Number(longitude)).catch(() => {});
         }
+    } catch (err) {
+        console.error('[order] customer notify failed:', err.message);
     }
 
-    // Admin receipt (best-effort — must not block customer reply).
+    // Admin receipt + map pin (best-effort).
     if (ADMIN_ID) {
         const receipt = formatAdminReceipt({
-            orderId,
-            createdAt,
-            customer_name,
-            customer_phone,
-            latitude,
-            longitude,
-            address_text,
-            items,
-            subtotal,
-            distanceKm,
-            deliveryFee,
-            deliveryUnknown,
-            comment: orderComment,
-            total_amount: grandTotal,
+            orderId, createdAt, customer_name, customer_phone,
+            latitude, longitude, address_text, items, subtotal,
+            distanceKm, deliveryFee, deliveryUnknown,
+            comment: orderComment, total_amount: grandTotal,
         });
         try {
-            await ctx.telegram.sendMessage(ADMIN_ID, receipt);
+            await telegram.sendMessage(ADMIN_ID, receipt);
         } catch (err) {
-            console.error('[web_app_data] admin notify failed:', err.message);
+            console.error('[order] admin notify failed:', err.message);
         }
-        // Pin the location on the admin's map too — courier can tap it.
         if (latitude != null && longitude != null) {
             try {
-                await ctx.telegram.sendLocation(
-                    ADMIN_ID,
-                    Number(latitude),
-                    Number(longitude)
-                );
+                await telegram.sendLocation(ADMIN_ID, Number(latitude), Number(longitude));
             } catch (err) {
-                console.error('[web_app_data] admin location failed:', err.message);
+                console.error('[order] admin location failed:', err.message);
             }
         }
     }
+
+    return { ok: true, orderId, subtotal, deliveryFee, distanceKm, total_amount: grandTotal };
+}
+
+// --- web_app_data: legacy path (reply-keyboard sendData) -----------------
+// Kept for backward compatibility. The active flow is now POST /api/orders
+// (inline-keyboard Mini App can't use sendData).
+bot.on(message('web_app_data'), async (ctx) => {
+    let order;
+    try {
+        order = JSON.parse(ctx.message.web_app_data.data);
+    } catch {
+        await ctx.reply('⚠️ Buyurtma ma\'lumotlari yaroqsiz formatda.');
+        return;
+    }
+    const result = await processOrder(order, ctx.from.id, ctx.telegram);
+    if (!result.ok) await ctx.reply(`⚠️ ${result.error}`);
+    // On success, processOrder already messaged the customer + admin.
 });
+
+// --- Admin panel (/admin, ADMIN_ID only) ---------------------------------
+require('./handlers/admin').register(bot);
 
 // -------------------------------------------------------------------------
 // Order helpers
@@ -515,6 +507,30 @@ app.use('/api', (req, res, next) => {
 app.post('/api/_diag', express.json({ limit: '4kb' }), (req, res) => {
     console.log('[diag] from Mini App:', JSON.stringify(req.body));
     res.json({ ok: true });
+});
+
+// Order submission — the inline-keyboard Mini App can't use sendData(),
+// so it POSTs the order here. The customer is identified by `uid` (their
+// telegram id, injected into the Mini App URL by the /start button).
+// Reads/writes are server-validated inside processOrder().
+app.post('/api/orders', apiLimiter, express.json({ limit: '16kb' }), async (req, res) => {
+    try {
+        const body = req.body || {};
+        const uid = Number(body.uid ?? body.user_id ?? req.query.uid);
+        if (!Number.isInteger(uid) || uid <= 0) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Foydalanuvchi aniqlanmadi. Mini App ni bot tugmasi orqali oching.',
+            });
+        }
+        const result = await processOrder(body, uid, bot.telegram);
+        const logLine = `[api] POST /api/orders → ${result.ok ? 'ok #' + result.orderId : 'rejected'} uid=${uid}`;
+        console.log(logLine);
+        return res.status(result.ok ? 200 : 400).json(result);
+    } catch (err) {
+        console.error('[api] POST /api/orders failed:', err);
+        return res.status(500).json({ ok: false, error: 'Server xatosi. Qayta urinib ko\'ring.' });
+    }
 });
 
 // Soft auth (never rejects) attaches req.telegramUser when initData is

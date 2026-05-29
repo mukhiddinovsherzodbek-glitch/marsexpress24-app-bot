@@ -150,5 +150,26 @@
         geocode(address) {
             return request('/geocode', { method: 'POST', body: { address } });
         },
+
+        /**
+         * Submit an order. Inline-keyboard Mini Apps can't use sendData(),
+         * so we POST here. The customer's telegram id (uid) is taken from
+         * the Mini App URL (?uid=) injected by the bot's /start button.
+         */
+        createOrder(payload) {
+            let uid = '';
+            try {
+                uid = new URLSearchParams(window.location.search).get('uid') || '';
+            } catch {}
+            if (!uid) {
+                const u =
+                    window.Telegram &&
+                    window.Telegram.WebApp &&
+                    window.Telegram.WebApp.initDataUnsafe &&
+                    window.Telegram.WebApp.initDataUnsafe.user;
+                if (u && u.id) uid = String(u.id);
+            }
+            return request('/orders', { method: 'POST', body: { ...payload, uid } });
+        },
     };
 })();
