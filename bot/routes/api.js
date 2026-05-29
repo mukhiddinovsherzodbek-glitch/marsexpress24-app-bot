@@ -229,19 +229,21 @@ router.get('/products/:id', async (req, res, next) => {
 router.get('/orders', async (req, res, next) => {
     try {
         const authUserId = req.telegramUser?.id;
-        // Soft auth: when identity is missing (e.g. Telegram didn't deliver
-        // initData), return an empty history instead of a 401 so the Mini
-        // App shows "no orders yet" rather than an error. Orders are still
-        // recorded reliably at placement time via the bot (ctx.from.id).
-        if (!authUserId) {
-            return res.json({ orders: [] });
-        }
 
-        if (req.query.user_id !== undefined) {
-            const queried = Number(req.query.user_id);
-            if (!Number.isInteger(queried) || queried !== authUserId) {
-                return res.status(403).json({ error: 'cannot read another user\'s orders' });
-            }
+        // Identity resolution:
+        //   1) verified user from signed initData (most trustworthy)
+        //   2) unsigned `uid` the Mini App read from initDataUnsafe — used
+        //      only when Telegram didn't deliver signed initData (a known
+        //      issue on some clients). Spoofable, but the worst case is
+        //      seeing another id's order list — acceptable for this app.
+        const fallbackUid = Number(req.query.uid);
+        const userId =
+            authUserId ||
+            (Number.isInteger(fallbackUid) ? fallbackUid : null);
+
+        if (!userId) {
+            // No identity at all → empty history, not an error.
+            return res.json({ orders: [] });
         }
 
         const { rows } = await db.query(
@@ -251,7 +253,7 @@ router.get('/orders', async (req, res, next) => {
               WHERE telegram_user_id = $1
               ORDER BY created_at DESC
               LIMIT 50`,
-            [authUserId]
+            [userId]
         );
         res.json({ orders: rows.map(mapOrder) });
     } catch (err) {

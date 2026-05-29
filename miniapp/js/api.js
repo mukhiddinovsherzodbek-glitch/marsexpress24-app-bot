@@ -109,9 +109,21 @@
             return request(`/products/${encodeURIComponent(id)}`);
         },
 
-        /** Current user's orders (server uses authenticated user, ignores client claim). */
+        /**
+         * Current user's orders. Prefer the server's verified identity
+         * (from signed initData); but some Telegram clients don't deliver
+         * signed initData, so we also pass the unsigned user id from
+         * initDataUnsafe as a fallback. The server uses the verified id
+         * when present and only falls back to this otherwise.
+         */
         getOrders() {
-            return request('/orders');
+            const u =
+                window.Telegram &&
+                window.Telegram.WebApp &&
+                window.Telegram.WebApp.initDataUnsafe &&
+                window.Telegram.WebApp.initDataUnsafe.user;
+            const uid = u && u.id ? `?uid=${encodeURIComponent(u.id)}` : '';
+            return request('/orders' + uid);
         },
 
         /** Open/closed flag — server-side check anchored to Asia/Tashkent. */

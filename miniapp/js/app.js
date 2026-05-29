@@ -194,21 +194,58 @@
             card.dataset.id = p.id;
             $('.prod-card__name', card).textContent = p.name;
             $('.prod-card__price', card).textContent = formatPrice(p.price);
-            // Combo contents / description, when present.
-            const descEl = $('.prod-card__desc', card);
-            if (descEl) {
-                if (p.description && p.description.trim()) {
-                    descEl.textContent = p.description;
-                    descEl.hidden = false;
-                } else {
-                    descEl.hidden = true;
-                }
-            }
+            // Combo contents — a 📋 toggle that expands an ingredient list
+            // between the price and the action button. Only shown when the
+            // product actually has a description.
+            setupIngredients(card, p.description);
             const img = $('.prod-card__img', card);
             img.src = p.image_url || '';
             img.alt = p.name;
             renderProductAction(card, p);
             list.appendChild(card);
+        });
+    }
+
+    // Turn a "Burger Chees 2 ta, Sous 1 ta" string into bullet lines
+    // "• Burger Chees — 2 ta". The trailing "N ta" gets a dash separator.
+    function ingredientLines(description) {
+        return description
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .map((part) => part.replace(/\s+(\d+\s*ta)\s*$/i, ' — $1'));
+    }
+
+    // Wire the 📋 toggle + build the (hidden) ingredients panel for a card.
+    function setupIngredients(card, description) {
+        const btn = $('.prod-card__info-btn', card);
+        const panel = $('.prod-card__ingredients', card);
+        if (!btn || !panel) return;
+
+        const hasDesc = description && description.trim();
+        if (!hasDesc) {
+            btn.hidden = true;
+            panel.hidden = true;
+            return;
+        }
+
+        // Build the bullet list once.
+        panel.innerHTML = '';
+        ingredientLines(description).forEach((line) => {
+            const row = document.createElement('div');
+            row.className = 'ingredient-line';
+            row.textContent = '• ' + line;
+            panel.appendChild(row);
+        });
+
+        btn.hidden = false;
+        panel.hidden = true;
+        btn.classList.remove('prod-card__info-btn--open');
+        btn.addEventListener('click', () => {
+            const open = panel.hidden; // about to open?
+            panel.hidden = !open;
+            btn.classList.toggle('prod-card__info-btn--open', open);
+            haptic('light');
         });
     }
 
@@ -527,6 +564,13 @@
     function requestLocation() {
         if (locBusy) return;
         locBusy = true;
+
+        // Diagnostics — which location APIs does this client expose?
+        const lmAvail = !!(tg && tg.LocationManager);
+        console.log('[loc] click — LocationManager:', lmAvail,
+            '| requestLocation:', !!(tg && typeof tg.requestLocation === 'function'),
+            '| geolocation:', !!navigator.geolocation,
+            '| version:', tg && tg.version);
 
         const setBtn = (label) => { $('#loc-btn-label').textContent = label; };
         setBtn('⏳ Aniqlanmoqda…');

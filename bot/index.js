@@ -79,10 +79,14 @@ bot.catch((err, ctx) => {
 });
 
 // --- /start --------------------------------------------------------------
-// Cache the welcome photo's file_id after the first send. Telegram lets us
-// re-reference an already-uploaded file by id, which skips the multi-MB
-// re-upload on every /start and makes the photo arrive almost instantly.
-let cachedWelcomePhotoId = null;
+// Telegram lets us re-reference an already-uploaded photo by its file_id,
+// which skips the multi-MB re-upload on every /start (and survives Render
+// restarts, unlike an in-memory cache). Prefer the env var; fall back to a
+// known-good default captured for this bot; the code re-logs a fresh id if
+// both are missing/invalid.
+const WELCOME_PHOTO_FILE_ID =
+    process.env.WELCOME_PHOTO_FILE_ID ||
+    'AgACAgIAAxkDAAMjahg-u3qbjOn2sv0lerdvgEoIBAUAAuwaaxtGp8FIm0rvEdwXF8UBAAMCAAN5AAM7BA';
 
 bot.start(async (ctx) => {
     // Outside working hours we don't show the order button — replying
@@ -105,42 +109,44 @@ bot.start(async (ctx) => {
           ]).resize()
         : undefined;
 
-    // 1) Welcome image — re-use cached file_id when we have it (instant),
-    //    otherwise upload from disk and cache the returned id.
-    const photoPath = path.join(__dirname, 'assets', 'welcome_start.png');
-    const haveFile = fs.existsSync(photoPath);
-
-    if (cachedWelcomePhotoId) {
+    // 1) Welcome image. Priority:
+    //    a) WELCOME_PHOTO_FILE_ID (or our known-good default) → instant,
+    //       Telegram serves the already-uploaded file, no disk read/upload.
+    //    b) disk upload → works, and we log the returned file_id so it can
+    //       be promoted into the env var to make future sends instant.
+    //    No sendChatAction — it only adds a round-trip and delay.
+    let photoSent = false;
+    if (WELCOME_PHOTO_FILE_ID) {
         try {
-            await ctx.replyWithPhoto(cachedWelcomePhotoId);
+            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID);
+            photoSent = true;
         } catch (err) {
-            console.warn('[/start] cached file_id rejected, re-uploading:', err.message);
-            cachedWelcomePhotoId = null;
+            console.warn('[/start] file_id photo rejected, falling back to disk:', err.message);
         }
     }
-
-    if (!cachedWelcomePhotoId && haveFile) {
-        // Show "uploading photo…" indicator so the user sees we're working.
-        ctx.sendChatAction('upload_photo').catch(() => {});
-        try {
-            const msg = await ctx.replyWithPhoto({ source: photoPath });
-            // Telegram returns an array of sizes — the largest is last.
-            const sizes = msg && msg.photo;
-            if (Array.isArray(sizes) && sizes.length > 0) {
-                cachedWelcomePhotoId = sizes[sizes.length - 1].file_id;
+    if (!photoSent) {
+        const photoPath = path.join(__dirname, 'assets', 'welcome_start.png');
+        if (fs.existsSync(photoPath)) {
+            try {
+                const msg = await ctx.replyWithPhoto({ source: photoPath });
+                const sizes = msg && msg.photo;
+                if (Array.isArray(sizes) && sizes.length > 0) {
+                    console.log(
+                        '[/start] welcome_start.png uploaded — file_id =',
+                        sizes[sizes.length - 1].file_id,
+                        '\n         (set this as WELCOME_PHOTO_FILE_ID env to skip re-uploads)'
+                    );
+                }
+            } catch (err) {
+                console.error('[/start] disk photo send failed:', err.message);
             }
-        } catch (err) {
-            console.error('[/start] failed to send photo:', err.message);
+        } else {
+            console.warn('[/start] welcome image missing on disk:', photoPath);
         }
-    } else if (!cachedWelcomePhotoId && !haveFile) {
-        console.warn(`[/start] welcome image missing: ${photoPath}`);
     }
 
-    // 2) Greeting + reply-keyboard button that opens the Mini App.
-    //    NOTE: Telegram.WebApp.sendData() only fires when the app is
-    //    opened from a *reply* keyboard button (KeyboardButton.web_app).
-    //    Inline-keyboard web-app buttons can't post back via web_app_data,
-    //    so we deliberately use a reply keyboard here.
+    // 2) Greeting + reply-keyboard button that opens the Mini App — sent
+    //    immediately after the photo.
     await ctx.reply(greetingText, greetingMarkup);
 });
 

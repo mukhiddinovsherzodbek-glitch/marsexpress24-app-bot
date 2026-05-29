@@ -279,9 +279,14 @@
                 <img class="prod-card__img" alt="" loading="lazy" />
             </div>
             <div class="prod-card__body">
-                <h3 class="prod-card__name"></h3>
-                <p class="prod-card__desc" hidden></p>
+                <div class="prod-card__head">
+                    <h3 class="prod-card__name"></h3>
+                    <button class="prod-card__info-btn" type="button"
+                            aria-label="Tarkibi" hidden>📋</button>
+                </div>
                 <div class="prod-card__price"></div>
+                <!-- Combo contents — toggled open by the 📋 button -->
+                <div class="prod-card__ingredients" hidden></div>
                 <div class="prod-card__action">
                     <!-- Filled by app.js: either "+ Savatga qo'shish" or "- N +" -->
                 </div>
