@@ -117,13 +117,23 @@
          * when present and only falls back to this otherwise.
          */
         getOrders() {
-            const u =
-                window.Telegram &&
-                window.Telegram.WebApp &&
-                window.Telegram.WebApp.initDataUnsafe &&
-                window.Telegram.WebApp.initDataUnsafe.user;
-            const uid = u && u.id ? `?uid=${encodeURIComponent(u.id)}` : '';
-            return request('/orders' + uid);
+            // Identity, in priority order:
+            //   1) ?uid=  injected into the Mini App URL by the bot's
+            //      /start button (reliable — the bot knows ctx.from.id).
+            //   2) initDataUnsafe.user.id (when Telegram delivers it).
+            let uid = '';
+            try {
+                uid = new URLSearchParams(window.location.search).get('uid') || '';
+            } catch {}
+            if (!uid) {
+                const u =
+                    window.Telegram &&
+                    window.Telegram.WebApp &&
+                    window.Telegram.WebApp.initDataUnsafe &&
+                    window.Telegram.WebApp.initDataUnsafe.user;
+                if (u && u.id) uid = String(u.id);
+            }
+            return request('/orders' + (uid ? `?uid=${encodeURIComponent(uid)}` : ''));
         },
 
         /** Open/closed flag — server-side check anchored to Asia/Tashkent. */

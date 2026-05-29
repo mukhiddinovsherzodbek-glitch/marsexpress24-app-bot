@@ -88,6 +88,17 @@ const WELCOME_PHOTO_FILE_ID =
     process.env.WELCOME_PHOTO_FILE_ID ||
     'AgACAgIAAxkDAAMjahg-u3qbjOn2sv0lerdvgEoIBAUAAuwaaxtGp8FIm0rvEdwXF8UBAAMCAAN5AAM7BA';
 
+/** Build the Mini App URL with the user's id as a query param. */
+function webAppUrlForUser(userId) {
+    try {
+        const u = new URL(WEBAPP_URL);
+        u.searchParams.set('uid', String(userId));
+        return u.toString();
+    } catch {
+        return WEBAPP_URL;
+    }
+}
+
 bot.start(async (ctx) => {
     // Outside working hours we don't show the order button — replying
     // with a closed notice avoids inviting an order we can't fulfil.
@@ -103,9 +114,13 @@ bot.start(async (ctx) => {
     const greetingText =
         'Assalomu alaykum! Marsexpress24 ga xush kelibsiz 🍔\n' +
         'Buyurtma berish uchun quyidagi tugmani bosing:';
+    // Inject the user's Telegram id into the Mini App URL. Some clients
+    // don't deliver signed initData (no tgWebAppData), so the Mini App
+    // can't identify the user on its own — this gives it a reliable id
+    // to show "My orders". Reading orders by this id is low-risk.
     const greetingMarkup = WEBAPP_URL
         ? Markup.keyboard([
-              Markup.button.webApp('🛍️ Buyurtma berish', WEBAPP_URL),
+              Markup.button.webApp('🛍️ Buyurtma berish', webAppUrlForUser(ctx.from.id)),
           ]).resize()
         : undefined;
 
