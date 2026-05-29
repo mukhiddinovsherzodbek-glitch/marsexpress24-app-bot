@@ -248,8 +248,8 @@ bot.on(message('web_app_data'), async (ctx) => {
         const { rows } = await db.query(
             `INSERT INTO orders
                 (telegram_user_id, customer_name, customer_phone,
-                 latitude, longitude, address_text, items, total_amount)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+                 latitude, longitude, address_text, items, total_amount, comment)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
              RETURNING id, created_at`,
             [
                 ctx.from.id,
@@ -260,6 +260,7 @@ bot.on(message('web_app_data'), async (ctx) => {
                 address_text,
                 JSON.stringify(items),
                 grandTotal, // includes delivery fee
+                orderComment,
             ]
         );
         orderId = rows[0].id;

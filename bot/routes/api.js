@@ -55,6 +55,7 @@ function mapOrder(row) {
         items: row.items, // JSONB — pg already parses to JS
         total_amount: numOrNull(row.total_amount),
         status: row.status,
+        comment: row.comment || null,
         created_at: row.created_at,
     };
 }
@@ -248,7 +249,7 @@ router.get('/orders', async (req, res, next) => {
 
         const { rows } = await db.query(
             `SELECT id, customer_name, customer_phone, latitude, longitude,
-                    address_text, items, total_amount, status, created_at
+                    address_text, items, total_amount, status, comment, created_at
                FROM orders
               WHERE telegram_user_id = $1
               ORDER BY created_at DESC

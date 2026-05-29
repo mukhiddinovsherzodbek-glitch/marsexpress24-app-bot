@@ -657,49 +657,66 @@ input, textarea, button { font: inherit; }
 /* -------------------------------------------------------------------------
    Orders list
    ------------------------------------------------------------------------- */
-.orders-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.orders-list { display: flex; flex-direction: column; gap: 12px; }
 
 .order-card {
-    background: var(--c-card-bg);
+    background: #1e1e1e;
     border-radius: var(--r-card);
     padding: var(--space-4);
     box-shadow: var(--shadow-soft);
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: 10px;
 }
+/* Prominent header: "📦 Buyurtma #8 — 290,000 so'm" */
 .order-card__head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-}
-.order-card__id    { font-weight: 700; color: var(--c-text); }
-.order-card__date  { font-size: 12px; color: var(--c-text-muted); }
-.order-card__items {
-    font-size: 13px;
-    color: var(--c-text-muted);
-    line-height: 1.5;
-}
-.order-card__foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--c-border);
-}
-.order-card__status {
-    font-size: 12px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: var(--c-primary-soft);
-    color: var(--c-primary);
-}
-.order-card__total {
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 800;
     color: var(--c-text);
+    letter-spacing: -0.01em;
 }
+.order-card__date {
+    font-size: 13px;
+    color: var(--c-text-muted);
+}
+/* Light 1px divider */
+.order-card__divider {
+    height: 1px;
+    background: var(--c-border);
+    margin: 2px 0;
+}
+.order-card__items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.order-card__item {
+    font-size: 14px;
+    color: var(--c-text);
+    line-height: 1.4;
+}
+.order-card__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13.5px;
+    color: var(--c-text);
+    line-height: 1.45;
+}
+/* Outlined reorder button — white fill, orange border + text */
+.order-reorder-btn {
+    width: 100%;
+    min-height: 44px;
+    padding: 11px 16px;
+    border-radius: var(--r-btn);
+    background: #ffffff;
+    border: 1px solid var(--c-primary);
+    color: var(--c-primary);
+    font-weight: 700;
+    font-size: 14px;
+    transition: transform 80ms ease, background 150ms ease;
+}
+.order-reorder-btn:active { transform: scale(0.98); background: #fff1ec; }
 
 .empty-state {
     text-align: center;

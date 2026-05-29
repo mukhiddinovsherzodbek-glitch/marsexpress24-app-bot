@@ -792,29 +792,96 @@
     // ---------------------------------------------------------------
     // Orders page
     // ---------------------------------------------------------------
+    // status → human label with emoji.
     const ORDER_STATUS_LABEL = {
-        new: 'Yangi',
-        accepted: 'Tasdiqlangan',
-        preparing: 'Tayyorlanmoqda',
-        delivering: 'Yetkazilmoqda',
-        delivered: 'Yetkazildi',
-        cancelled: 'Bekor qilindi',
+        new:        'Yangi ⏳',
+        confirmed:  'Tasdiqlangan ✅',
+        accepted:   'Tasdiqlangan ✅',
+        delivered:  'Yetkazildi 🚀',
+        cancelled:  'Bekor qilindi ❌',
     };
-
-    function formatOrderDate(iso) {
-        try {
-            return new Date(iso).toLocaleString('uz-UZ', {
-                year: '2-digit', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit',
-            });
-        } catch { return iso; }
+    function statusLabel(status) {
+        return ORDER_STATUS_LABEL[status] || status || '—';
     }
 
-    function renderOrderItems(items) {
-        if (!Array.isArray(items)) return '';
-        return items
-            .map((it) => `${it.name} ×${it.quantity}`)
-            .join(' · ');
+    // "2024-01-15, 14:32" in Tashkent time (UTC+5).
+    function formatOrderDate(iso) {
+        try {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Tashkent',
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', hour12: false,
+            }).formatToParts(new Date(iso));
+            const g = (t) => (parts.find((p) => p.type === t) || {}).value || '';
+            return `${g('year')}-${g('month')}-${g('day')}, ${g('hour')}:${g('minute')}`;
+        } catch {
+            return iso;
+        }
+    }
+
+    function orderDivider() {
+        const d = document.createElement('div');
+        d.className = 'order-card__divider';
+        return d;
+    }
+
+    // Build one order card per the spec — header, date, items, meta
+    // (address/comment/status, each conditional), then the reorder button.
+    function buildOrderCard(o) {
+        const card = document.createElement('article');
+        card.className = 'order-card';
+
+        const head = document.createElement('div');
+        head.className = 'order-card__head';
+        head.textContent = `📦 Buyurtma #${o.id} — ${formatPrice(o.total_amount)}`;
+        card.appendChild(head);
+
+        const date = document.createElement('div');
+        date.className = 'order-card__date';
+        date.textContent = `🕐 ${formatOrderDate(o.created_at)}`;
+        card.appendChild(date);
+
+        card.appendChild(orderDivider());
+
+        const itemsBox = document.createElement('div');
+        itemsBox.className = 'order-card__items';
+        (Array.isArray(o.items) ? o.items : []).forEach((it) => {
+            const row = document.createElement('div');
+            row.className = 'order-card__item';
+            row.textContent = `• ${it.name} — ${Number(it.quantity) || 0} ta`;
+            itemsBox.appendChild(row);
+        });
+        card.appendChild(itemsBox);
+
+        card.appendChild(orderDivider());
+
+        const meta = document.createElement('div');
+        meta.className = 'order-card__meta';
+        if (o.address_text && String(o.address_text).trim()) {
+            const a = document.createElement('div');
+            a.textContent = `📍 ${o.address_text}`;
+            meta.appendChild(a);
+        }
+        if (o.comment && String(o.comment).trim()) {
+            const c = document.createElement('div');
+            c.textContent = `💬 Izoh: ${o.comment}`;
+            meta.appendChild(c);
+        }
+        const st = document.createElement('div');
+        st.textContent = `🔄 Status: ${statusLabel(o.status)}`;
+        meta.appendChild(st);
+        card.appendChild(meta);
+
+        card.appendChild(orderDivider());
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'order-reorder-btn';
+        btn.textContent = '🔁 Yana shundan buyurtma qilish';
+        btn.addEventListener('click', () => reorder(o));
+        card.appendChild(btn);
+
+        return card;
     }
 
     async function loadOrders() {
@@ -833,16 +900,7 @@
                     </div>`;
                 return;
             }
-            orders.forEach((o) => {
-                const card = instantiate('tpl-order-card');
-                $('.order-card__id', card).textContent = `#${o.id}`;
-                $('.order-card__date', card).textContent = formatOrderDate(o.created_at);
-                $('.order-card__items', card).textContent = renderOrderItems(o.items);
-                $('.order-card__status', card).textContent = ORDER_STATUS_LABEL[o.status] || o.status;
-                $('.order-card__total', card).textContent = formatPrice(o.total_amount);
-                $('.order-card__reorder', card).addEventListener('click', () => reorder(o));
-                list.appendChild(card);
-            });
+            orders.forEach((o) => list.appendChild(buildOrderCard(o)));
         } catch (err) {
             console.error('loadOrders failed', err);
             list.innerHTML = `
