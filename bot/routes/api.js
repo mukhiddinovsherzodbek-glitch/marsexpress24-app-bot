@@ -229,8 +229,12 @@ router.get('/products/:id', async (req, res, next) => {
 router.get('/orders', async (req, res, next) => {
     try {
         const authUserId = req.telegramUser?.id;
+        // Soft auth: when identity is missing (e.g. Telegram didn't deliver
+        // initData), return an empty history instead of a 401 so the Mini
+        // App shows "no orders yet" rather than an error. Orders are still
+        // recorded reliably at placement time via the bot (ctx.from.id).
         if (!authUserId) {
-            return res.status(401).json({ error: 'no telegram user in token' });
+            return res.json({ orders: [] });
         }
 
         if (req.query.user_id !== undefined) {

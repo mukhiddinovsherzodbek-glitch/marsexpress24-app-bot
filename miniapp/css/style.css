@@ -271,11 +271,22 @@ input, textarea, button { font: inherit; }
     line-clamp: 2;
     -webkit-box-orient: vertical;
 }
+.prod-card__desc {
+    margin: 2px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--c-text-muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
 .prod-card__price {
     font-size: 16px;
     font-weight: 700;
     color: var(--c-primary);
-    margin-top: 2px;
+    margin-top: 4px;
 }
 .prod-card__action {
     margin-top: auto;

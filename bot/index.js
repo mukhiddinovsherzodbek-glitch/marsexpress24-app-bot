@@ -24,7 +24,7 @@ const { message } = require('telegraf/filters');
 
 const db = require('./db');
 const apiRouter = require('./routes/api');
-const { requireTelegramAuth } = require('./middleware/auth');
+const { softTelegramAuth } = require('./middleware/auth');
 
 // -------------------------------------------------------------------------
 // Config
@@ -180,7 +180,12 @@ bot.on(message('web_app_data'), async (ctx) => {
         address_text,
         items,
         total_amount,
+        comment = null,
     } = order;
+
+    // Normalise optional comment — trim, cap length, drop if empty.
+    const orderComment =
+        typeof comment === 'string' && comment.trim() ? comment.trim().slice(0, 500) : null;
 
     // Re-derive subtotal from items so we never trust the client's number
     // for the minimum-order check or the delivered-to-admin total.
@@ -279,6 +284,7 @@ bot.on(message('web_app_data'), async (ctx) => {
             distanceKm,
             deliveryFee,
             deliveryUnknown,
+            comment: orderComment,
             total_amount: grandTotal,
         });
         try {
@@ -359,7 +365,7 @@ function formatAdminReceipt(o) {
         deliveryLine = '📍 Masofa: —';
     }
 
-    return [
+    const lines = [
         `🆕 YANGI BUYURTMA #${o.orderId}`,
         '━━━━━━━━━━━━━━━━',
         `👤 Mijoz: ${o.customer_name}`,
@@ -367,6 +373,14 @@ function formatAdminReceipt(o) {
         `📍 Manzil: ${o.address_text}`,
         `🗺️ Koordinatalar: ${coords}`,
         deliveryLine,
+    ];
+
+    // Optional customer comment — only shown when present.
+    if (o.comment) {
+        lines.push(`💬 Izoh: ${o.comment}`);
+    }
+
+    lines.push(
         '━━━━━━━━━━━━━━━━',
         '🛒 Buyurtma tarkibi:',
         itemsLines,
@@ -376,8 +390,10 @@ function formatAdminReceipt(o) {
             ? 'telefonda'
             : o.deliveryFee > 0 ? formatPrice(o.deliveryFee) + " so'm" : 'Bepul'}`,
         `💰 JAMI: ${formatPrice(o.total_amount)} so'm`,
-        `🕐 Vaqt: ${formatDate(o.createdAt)}`,
-    ].join('\n');
+        `🕐 Vaqt: ${formatDate(o.createdAt)}`
+    );
+
+    return lines.join('\n');
 }
 
 // -------------------------------------------------------------------------
@@ -479,7 +495,11 @@ app.post('/api/_diag', express.json({ limit: '4kb' }), (req, res) => {
     res.json({ ok: true });
 });
 
-app.use('/api', apiLimiter, requireTelegramAuth, apiRouter);
+// Soft auth (never rejects) attaches req.telegramUser when initData is
+// valid. The catalog endpoints (categories/products/status/restaurant/
+// geocode) are public menu data and work for everyone; the orders route
+// uses req.telegramUser and returns an empty list when it's null.
+app.use('/api', apiLimiter, softTelegramAuth, apiRouter);
 
 // Serve the Mini App as static files from THIS server.
 // Same-origin with /api → no CORS issues, single ngrok tunnel covers both.

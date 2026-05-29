@@ -194,6 +194,16 @@
             card.dataset.id = p.id;
             $('.prod-card__name', card).textContent = p.name;
             $('.prod-card__price', card).textContent = formatPrice(p.price);
+            // Combo contents / description, when present.
+            const descEl = $('.prod-card__desc', card);
+            if (descEl) {
+                if (p.description && p.description.trim()) {
+                    descEl.textContent = p.description;
+                    descEl.hidden = false;
+                } else {
+                    descEl.hidden = true;
+                }
+            }
             const img = $('.prod-card__img', card);
             img.src = p.image_url || '';
             img.alt = p.name;
@@ -512,20 +522,35 @@
         el.classList.toggle('field__hint--err', !ok);
     }
 
+    let locBusy = false;
+
     function requestLocation() {
+        if (locBusy) return;
+        locBusy = true;
+
+        const setBtn = (label) => { $('#loc-btn-label').textContent = label; };
+        setBtn('⏳ Aniqlanmoqda…');
+        setLocationStatus('', true);
+
+        let settled = false;
+        const finish = () => { settled = true; locBusy = false; };
+
         const onOk = (lat, lon) => {
+            if (settled) return;
+            finish();
             pickedLocation = { latitude: lat, longitude: lon };
             setLocationStatus('📍 Joylashuv aniqlandi ✅', true);
-            $('#loc-btn-label').textContent = '📍 Joylashuv yangilash';
+            setBtn('📍 Joylashuv yangilash');
             applyDeliveryFromCoords(lat, lon);
             updateConfirmEnabled();
             haptic('success');
         };
         const onFail = (msg) => {
+            if (settled) return;
+            finish();
             pickedLocation = null;
-            setLocationStatus(msg || 'Joylashuv olinmadi — manzilni qo\'lda yozing', false);
-            $('#loc-btn-label').textContent = '📍 Joylashuvni avtomatik yuborish';
-            // Fall back to whatever the typed address gives us.
+            setLocationStatus(msg || 'Joylashuv aniqlanmadi. Manzilni qo\'lda kiriting', false);
+            setBtn('📍 Joylashuvni avtomatik yuborish');
             const manual = $('#f-address').value.trim();
             if (manual) applyDeliveryFromAddress(manual);
             else setDelivery({ source: null });
@@ -533,36 +558,80 @@
             haptic('error');
         };
 
-        // Telegram >= Bot API 8 provides LocationManager.
-        if (tg && tg.LocationManager) {
-            try {
-                tg.LocationManager.init(() => {
-                    if (!tg.LocationManager.isAccessGranted) {
-                        // Trigger the system prompt by calling getLocation.
+        // Safety net: if neither API ever calls back, don't hang forever.
+        const watchdog = setTimeout(() => onFail('Joylashuv aniqlanmadi. Manzilni qo\'lda kiriting'), 20000);
+        const ok = (lat, lon) => { clearTimeout(watchdog); onOk(lat, lon); };
+        const fail = (m) => { clearTimeout(watchdog); onFail(m); };
+
+        // --- Browser geolocation fallback ---------------------------------
+        const useGeolocation = () => {
+            if (!navigator.geolocation) {
+                fail('Qurilma joylashuvni qo\'llab-quvvatlamaydi. Manzilni qo\'lda kiriting');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => ok(pos.coords.latitude, pos.coords.longitude),
+                (err) => {
+                    // PERMISSION_DENIED = 1
+                    if (err && err.code === 1) {
+                        fail('Joylashuvga ruxsat berilmadi. Manzilni qo\'lda kiriting');
+                    } else {
+                        fail('Joylashuv aniqlanmadi. Manzilni qo\'lda kiriting');
                     }
-                    tg.LocationManager.getLocation((loc) => {
-                        if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
-                            onOk(loc.latitude, loc.longitude);
-                        } else {
-                            onFail('Telegram joylashuvni bermadi');
-                        }
-                    });
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+            );
+        };
+
+        // --- Telegram LocationManager (Bot API 8.0+) ----------------------
+        const lm = tg && tg.LocationManager;
+        if (lm && typeof lm.getLocation === 'function') {
+            const proceed = () => {
+                if (lm.isLocationAvailable === false) {
+                    // Device/Telegram can't provide location → browser fallback.
+                    useGeolocation();
+                    return;
+                }
+                lm.getLocation((loc) => {
+                    if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+                        ok(loc.latitude, loc.longitude);
+                    } else if (lm.isAccessRequested && lm.isAccessGranted === false) {
+                        // User explicitly denied — point them to settings.
+                        try { lm.openSettings && lm.openSettings(); } catch {}
+                        fail('Joylashuvga ruxsat berilmadi. Sozlamalardan ruxsat bering yoki manzilni qo\'lda kiriting');
+                    } else {
+                        // Null without explicit denial → try browser API.
+                        useGeolocation();
+                    }
                 });
+            };
+            try {
+                if (lm.isInited) proceed();
+                else lm.init(proceed);
                 return;
             } catch (err) {
-                console.warn('LocationManager failed, falling back', err);
+                console.warn('[loc] LocationManager error, falling back:', err);
             }
         }
 
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => onOk(pos.coords.latitude, pos.coords.longitude),
-                (err) => onFail(err && err.message ? err.message : 'Joylashuv olinmadi'),
-                { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 }
-            );
-        } else {
-            onFail('Brauzer joylashuvni qo\'llab-quvvatlamaydi');
+        // --- Some clients expose a direct requestLocation() ----------------
+        if (tg && typeof tg.requestLocation === 'function') {
+            try {
+                tg.requestLocation((loc) => {
+                    if (loc && Number.isFinite(loc.latitude) && Number.isFinite(loc.longitude)) {
+                        ok(loc.latitude, loc.longitude);
+                    } else {
+                        useGeolocation();
+                    }
+                });
+                return;
+            } catch (err) {
+                console.warn('[loc] requestLocation error, falling back:', err);
+            }
         }
+
+        // --- Default: browser geolocation ---------------------------------
+        useGeolocation();
     }
 
     // ---------------------------------------------------------------
@@ -622,6 +691,7 @@
 
         const subtotal = cart.getTotal();
         const deliveryFee = delivery.fee || 0;
+        const commentRaw = $('#f-comment') ? $('#f-comment').value.trim() : '';
 
         return {
             customer_name: $('#f-name').value.trim(),
@@ -629,6 +699,7 @@
             latitude:  pickedLocation ? pickedLocation.latitude  : null,
             longitude: pickedLocation ? pickedLocation.longitude : null,
             address_text: addressText,
+            comment: commentRaw || null,
             items,
             // Informational — server re-derives these from items + coords:
             subtotal,

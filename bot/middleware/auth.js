@@ -146,4 +146,39 @@ function requireTelegramAuth(req, res, next) {
     next();
 }
 
-module.exports = { verifyInitData, requireTelegramAuth, MAX_AGE_SECONDS, DEV_FAKE_USER };
+/**
+ * Soft authentication — NEVER rejects.
+ *   • Valid initData      → req.telegramUser = real user
+ *   • Invalid + dev mode  → req.telegramUser = DEV_FAKE_USER
+ *   • Invalid + prod      → req.telegramUser = null  (caller decides)
+ *
+ * Used for endpoints that should still respond when identity is missing
+ * (e.g. order history → return an empty list rather than a 401, so the
+ * Mini App shows "no orders yet" instead of an error toast).
+ */
+function softTelegramAuth(req, _res, next) {
+    const initData =
+        req.get('x-telegram-init-data') ||
+        req.query._auth ||
+        (req.body && req.body._auth);
+
+    const result = verifyInitData(initData, process.env.BOT_TOKEN);
+    if (result.valid) {
+        req.telegramUser = result.user;
+        req.telegramAuthDate = result.authDate;
+    } else if (process.env.NODE_ENV !== 'production') {
+        req.telegramUser = { ...DEV_FAKE_USER };
+        req.telegramAuthDate = new Date();
+    } else {
+        req.telegramUser = null;
+    }
+    next();
+}
+
+module.exports = {
+    verifyInitData,
+    requireTelegramAuth,
+    softTelegramAuth,
+    MAX_AGE_SECONDS,
+    DEV_FAKE_USER,
+};

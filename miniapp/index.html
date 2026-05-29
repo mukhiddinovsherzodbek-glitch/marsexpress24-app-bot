@@ -218,6 +218,18 @@
                     <span class="field__hint field__hint--err" id="address-hint" hidden></span>
                 </div>
 
+                <label class="field">
+                    <span class="field__label">💬 Izoh (ixtiyoriy)</span>
+                    <textarea
+                        class="field__input field__input--area"
+                        name="comment"
+                        id="f-comment"
+                        rows="2"
+                        placeholder="Izoh"
+                        maxlength="500"
+                    ></textarea>
+                </label>
+
                 <div class="delivery-info" id="delivery-info" hidden></div>
 
                 <div class="checkout-total-rows">
@@ -268,6 +280,7 @@
             </div>
             <div class="prod-card__body">
                 <h3 class="prod-card__name"></h3>
+                <p class="prod-card__desc" hidden></p>
                 <div class="prod-card__price"></div>
                 <div class="prod-card__action">
                     <!-- Filled by app.js: either "+ Savatga qo'shish" or "- N +" -->
