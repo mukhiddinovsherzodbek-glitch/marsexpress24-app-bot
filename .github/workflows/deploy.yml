@@ -35,4 +35,8 @@ jobs:
           code=$(curl -s -X POST -o /tmp/resp -w "%{http_code}" "${HOOK}")
           echo "Render responded HTTP ${code}"
           cat /tmp/resp || true
-          test "${code}" = "200"
+          # Render's deploy hook returns 202 Accepted (not 200) — accept any 2xx.
+          case "${code}" in
+            2??) echo "Deploy triggered." ;;
+            *)   echo "Hook returned non-2xx — failing."; exit 1 ;;
+          esac
