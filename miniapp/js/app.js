@@ -803,19 +803,6 @@
     // ---------------------------------------------------------------
     // Orders page
     // ---------------------------------------------------------------
-    // status → human label with emoji.
-    const ORDER_STATUS_LABEL = {
-        new:        'Yangi ⏳',
-        confirmed:  'Tasdiqlangan ✅',
-        accepted:   'Tasdiqlangan ✅',
-        delivering: 'Yo\'lda 🚴',
-        delivered:  'Yetkazildi 🚀',
-        cancelled:  'Bekor qilindi ❌',
-    };
-    function statusLabel(status) {
-        return ORDER_STATUS_LABEL[status] || status || '—';
-    }
-
     // "2024-01-15, 14:32" in Tashkent time (UTC+5).
     function formatOrderDate(iso) {
         try {
@@ -838,7 +825,7 @@
     }
 
     // Build one order card per the spec — header, date, items, meta
-    // (address/comment/status, each conditional), then the reorder button.
+    // (address/comment, each conditional), then the reorder button.
     function buildOrderCard(o) {
         const card = document.createElement('article');
         card.className = 'order-card';
@@ -879,12 +866,12 @@
             c.textContent = `💬 Izoh: ${o.comment}`;
             meta.appendChild(c);
         }
-        const st = document.createElement('div');
-        st.textContent = `🔄 Status: ${statusLabel(o.status)}`;
-        meta.appendChild(st);
-        card.appendChild(meta);
-
-        card.appendChild(orderDivider());
+        // Only render the meta block + its divider when there's something
+        // to show (no status line — removed per request).
+        if (meta.children.length > 0) {
+            card.appendChild(meta);
+            card.appendChild(orderDivider());
+        }
 
         const btn = document.createElement('button');
         btn.type = 'button';

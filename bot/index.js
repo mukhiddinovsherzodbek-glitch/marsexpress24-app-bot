@@ -100,6 +100,16 @@ function webAppUrlForUser(userId) {
 }
 
 bot.start(async (ctx) => {
+    // Very first: silently strip any leftover reply keyboard from older
+    // (pre-inline) sessions — even when we're closed, so the stale button
+    // never lingers on the phone. A zero-width space is the smallest valid
+    // message body Telegram accepts.
+    try {
+        await ctx.reply('\u200B', { reply_markup: { remove_keyboard: true } });
+    } catch (err) {
+        console.warn('[/start] remove_keyboard failed:', err.message);
+    }
+
     // Outside working hours we don't show the order button — replying
     // with a closed notice avoids inviting an order we can't fulfil.
     if (!isWorkingHours()) {
@@ -134,9 +144,7 @@ bot.start(async (ctx) => {
     let photoSent = false;
     if (WELCOME_PHOTO_FILE_ID) {
         try {
-            // Attach remove_keyboard so any leftover reply keyboard from a
-            // previous (pre-inline) session is cleared on this first message.
-            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID, Markup.removeKeyboard());
+            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID);
             photoSent = true;
         } catch (err) {
             console.warn('[/start] file_id photo rejected, falling back to disk:', err.message);

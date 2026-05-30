@@ -3,7 +3,6 @@
 // File: bot/handlers/admin.js
 //
 // /admin (ADMIN_ID only) opens an inline-keyboard control panel:
-//   📦 Buyurtmalar  — today's orders, change status
 //   🍔 Mahsulotlar — toggle availability, edit price
 //   📊 Statistika   — today / week / month totals + top 5 products
 //
@@ -17,7 +16,7 @@ const { Markup } = require('telegraf');
 const { message } = require('telegraf/filters');
 const db = require('../db');
 
-const PAGE = 6;                 // orders / products per page
+const PAGE = 6;                 // products per page
 const TZ = 'Asia/Tashkent';
 
 // Pending "enter new price" state, keyed by admin telegram id.
@@ -35,15 +34,6 @@ function formatPrice(n) {
     return Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ');
 }
 
-const STATUS_LABEL = {
-    new: 'Yangi ⏳',
-    confirmed: 'Tasdiqlangan ✅',
-    delivering: 'Yo\'lda 🚴',
-    delivered: 'Yetkazildi 🚀',
-    cancelled: 'Bekor qilindi ❌',
-};
-const statusLabel = (s) => STATUS_LABEL[s] || s || '—';
-
 // Tashkent-local expression for the stored UTC timestamp.
 const C_TASH = "(created_at AT TIME ZONE 'UTC' AT TIME ZONE '" + TZ + "')";
 
@@ -53,55 +43,9 @@ const C_TASH = "(created_at AT TIME ZONE 'UTC' AT TIME ZONE '" + TZ + "')";
 const MENU_TEXT = '🎛 Admin Panel\nMarsexpress24';
 function menuMarkup() {
     return Markup.inlineKeyboard([
-        [Markup.button.callback('📦 Buyurtmalar', 'adm:orders:0')],
         [Markup.button.callback('🍔 Mahsulotlar', 'adm:products:0')],
         [Markup.button.callback('📊 Statistika', 'adm:stats')],
     ]);
-}
-
-// -------------------------------------------------------------------------
-// 📦 Orders — today's, paginated
-// -------------------------------------------------------------------------
-async function ordersView(page) {
-    const { rows } = await db.query(
-        `SELECT id, customer_name, total_amount, status
-           FROM orders
-          WHERE ${C_TASH}::date = (now() AT TIME ZONE '${TZ}')::date
-          ORDER BY created_at DESC`
-    );
-
-    if (rows.length === 0) {
-        return {
-            text: '📦 Bugungi buyurtmalar\n\nBugun hali buyurtma yo\'q.',
-            markup: Markup.inlineKeyboard([[Markup.button.callback('⬅️ Orqaga', 'adm:menu')]]),
-        };
-    }
-
-    const pages = Math.ceil(rows.length / PAGE);
-    const p = Math.max(0, Math.min(page, pages - 1));
-    const slice = rows.slice(p * PAGE, p * PAGE + PAGE);
-
-    const lines = ['📦 Bugungi buyurtmalar (' + rows.length + ' ta)', ''];
-    const buttons = [];
-    slice.forEach((o) => {
-        lines.push(`#${o.id} — ${o.customer_name || '—'} — ${formatPrice(o.total_amount)} so'm — ${statusLabel(o.status)}`);
-        buttons.push([
-            Markup.button.callback(`✅ #${o.id}`, `adm:ord:${o.id}:confirmed:${p}`),
-            Markup.button.callback(`🚴 #${o.id}`, `adm:ord:${o.id}:delivering:${p}`),
-            Markup.button.callback(`❌ #${o.id}`, `adm:ord:${o.id}:cancelled:${p}`),
-        ]);
-    });
-
-    if (pages > 1) {
-        const nav = [];
-        if (p > 0) nav.push(Markup.button.callback('⬅️', `adm:orders:${p - 1}`));
-        nav.push(Markup.button.callback(`${p + 1}/${pages}`, 'adm:noop'));
-        if (p < pages - 1) nav.push(Markup.button.callback('➡️', `adm:orders:${p + 1}`));
-        buttons.push(nav);
-    }
-    buttons.push([Markup.button.callback('⬅️ Orqaga', 'adm:menu')]);
-
-    return { text: lines.join('\n'), markup: Markup.inlineKeyboard(buttons) };
 }
 
 // -------------------------------------------------------------------------
@@ -231,21 +175,6 @@ function register(bot) {
         priceEdit.delete(ctx.from.id);
         await safeEdit(ctx, { text: MENU_TEXT, markup: menuMarkup() });
         await ctx.answerCbQuery();
-    }));
-
-    bot.action(/^adm:orders:(\d+)$/, guard(async (ctx) => {
-        await safeEdit(ctx, await ordersView(Number(ctx.match[1])));
-        await ctx.answerCbQuery();
-    }));
-
-    // Update order status — DB only, no customer notification.
-    bot.action(/^adm:ord:(\d+):(confirmed|delivering|cancelled):(\d+)$/, guard(async (ctx) => {
-        const id = Number(ctx.match[1]);
-        const status = ctx.match[2];
-        const page = Number(ctx.match[3]);
-        await db.query('UPDATE orders SET status = $1 WHERE id = $2', [status, id]);
-        await ctx.answerCbQuery(`#${id} → ${statusLabel(status)}`);
-        await safeEdit(ctx, await ordersView(page));
     }));
 
     bot.action(/^adm:products:(\d+)$/, guard(async (ctx) => {
