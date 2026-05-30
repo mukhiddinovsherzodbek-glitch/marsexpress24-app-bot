@@ -43,8 +43,16 @@
     const $  = (sel, root = document) => root.querySelector(sel);
     const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+    // i18n — reads window.i18n (js/i18n.js) using window.lang (set on boot).
+    // Falls back to Uzbek for any missing key or unknown language.
+    function t(key) {
+        const lang = window.lang || 'uz';
+        const dict = window.i18n || {};
+        return (dict[lang] && dict[lang][key]) || (dict.uz && dict.uz[key]) || key;
+    }
+
     function formatPrice(n) {
-        return Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ') + " so'm";
+        return Number(n || 0).toLocaleString('en-US').replace(/,/g, ' ') + ' ' + t('sum');
     }
 
     function showToast(msg, kind) {
@@ -102,7 +110,7 @@
     }
 
     function formatKm(km) {
-        return km.toFixed(1).replace('.', ',') + ' km';
+        return km.toFixed(1).replace('.', ',') + ' ' + t('km');
     }
 
     // ---------------------------------------------------------------
@@ -141,9 +149,7 @@
             });
         } catch (err) {
             console.error('loadCategories failed', err);
-            showToast(err.kind === 'network'
-                ? 'Tarmoq xatosi. Qayta urinib ko\'ring.'
-                : 'Kategoriyalarni yuklashda xato.', 'error');
+            showToast(err.kind === 'network' ? t('networkError') : t('errorLoad'), 'error');
         }
     }
 
@@ -173,7 +179,7 @@
         } catch (err) {
             console.error('loadProducts failed', err);
             $('#products-list').innerHTML = '';
-            showToast('Mahsulotlarni yuklashda xato.', 'error');
+            showToast(t('errorLoad'), 'error');
         }
     }
 
@@ -183,8 +189,8 @@
         if (!products.length) {
             list.innerHTML = `
                 <div class="empty-state">
-                    <h3>Hozircha mahsulotlar yo'q</h3>
-                    <p>Tez kunda yangilanadi 🍔</p>
+                    <h3>${t('noProductsTitle')}</h3>
+                    <p>${t('noProductsHint')}</p>
                 </div>`;
             return;
         }
@@ -257,7 +263,7 @@
             const addBtn = document.createElement('button');
             addBtn.type = 'button';
             addBtn.className = 'add-btn';
-            addBtn.textContent = '➕ Savatga qo\'shish';
+            addBtn.textContent = '➕ ' + t('addToCart');
             addBtn.addEventListener('click', () => {
                 cart.add(product);
                 haptic('light');
@@ -325,8 +331,8 @@
         if (warn) {
             if (belowMin) {
                 warn.textContent =
-                    `Minimal buyurtma summasi: ${formatPrice(cfg.min_order_total)} ` +
-                    `(hozir: ${formatPrice(snapshot.total)})`;
+                    `${t('minOrderPrefix')} ${formatPrice(cfg.min_order_total)} ` +
+                    `(${t('now')}: ${formatPrice(snapshot.total)})`;
                 warn.hidden = false;
             } else {
                 warn.hidden = true;
@@ -384,9 +390,9 @@
             feeRow.hidden = !visible;
             if (visible && feeEl) {
                 if (delivery.source === 'unknown') {
-                    feeEl.textContent = 'Telefonda';
+                    feeEl.textContent = t('deliveryPhone');
                 } else {
-                    feeEl.textContent = fee === 0 ? 'Bepul' : formatPrice(fee);
+                    feeEl.textContent = fee === 0 ? t('free') : formatPrice(fee);
                 }
             }
         }
@@ -396,8 +402,8 @@
         if (cWarn) {
             if (subtotal < cfg.min_order_total) {
                 cWarn.textContent =
-                    `Minimal buyurtma summasi: ${formatPrice(cfg.min_order_total)} ` +
-                    `(hozir: ${formatPrice(subtotal)})`;
+                    `${t('minOrderPrefix')} ${formatPrice(cfg.min_order_total)} ` +
+                    `(${t('now')}: ${formatPrice(subtotal)})`;
                 cWarn.hidden = false;
             } else {
                 cWarn.hidden = true;
@@ -420,15 +426,15 @@
         } else if (delivery.source === 'loading') {
             info.hidden = false;
             info.classList.add('delivery-info--loading');
-            info.textContent = '⏳ Manzilni tekshirmoqdamiz…';
+            info.textContent = t('deliveryLoading');
         } else if (delivery.source === 'unknown') {
             info.hidden = false;
             info.classList.add('delivery-info--error');
-            info.textContent = '📍 Manzilni xaritada topa olmadik — dostavka narxi telefonda aniqlanadi';
+            info.textContent = t('deliveryUnknown');
         } else {
             info.hidden = false;
-            const feeStr = delivery.fee === 0 ? 'Bepul' : formatPrice(delivery.fee);
-            info.textContent = `📍 Sizdan ${formatKm(delivery.distanceKm)} | Dostavka: ${feeStr}`;
+            const feeStr = delivery.fee === 0 ? t('free') : formatPrice(delivery.fee);
+            info.textContent = `📍 ${t('fromYou')} ${formatKm(delivery.distanceKm)} | ${t('delivery')}: ${feeStr}`;
         }
 
         // Trigger a checkout total redraw with the latest fee.
@@ -573,7 +579,7 @@
             '| version:', tg && tg.version);
 
         const setBtn = (label) => { $('#loc-btn-label').textContent = label; };
-        setBtn('⏳ Aniqlanmoqda…');
+        setBtn(t('locating'));
         setLocationStatus('', true);
 
         let settled = false;
@@ -583,8 +589,8 @@
             if (settled) return;
             finish();
             pickedLocation = { latitude: lat, longitude: lon };
-            setLocationStatus('📍 Joylashuv aniqlandi ✅', true);
-            setBtn('📍 Joylashuv yangilash');
+            setLocationStatus(t('locationFound'), true);
+            setBtn(t('locationUpdate'));
             applyDeliveryFromCoords(lat, lon);
             updateConfirmEnabled();
             haptic('success');
@@ -593,8 +599,8 @@
             if (settled) return;
             finish();
             pickedLocation = null;
-            setLocationStatus(msg || 'Joylashuv aniqlanmadi. Manzilni qo\'lda kiriting', false);
-            setBtn('📍 Joylashuvni avtomatik yuborish');
+            setLocationStatus(msg || t('locFail'), false);
+            setBtn(t('autoLocation'));
             const manual = $('#f-address').value.trim();
             if (manual) applyDeliveryFromAddress(manual);
             else setDelivery({ source: null });
@@ -603,14 +609,14 @@
         };
 
         // Safety net: if neither API ever calls back, don't hang forever.
-        const watchdog = setTimeout(() => onFail('Joylashuv aniqlanmadi. Manzilni qo\'lda kiriting'), 20000);
+        const watchdog = setTimeout(() => onFail(t('locFail')), 20000);
         const ok = (lat, lon) => { clearTimeout(watchdog); onOk(lat, lon); };
         const fail = (m) => { clearTimeout(watchdog); onFail(m); };
 
         // --- Browser geolocation fallback ---------------------------------
         const useGeolocation = () => {
             if (!navigator.geolocation) {
-                fail('Qurilma joylashuvni qo\'llab-quvvatlamaydi. Manzilni qo\'lda kiriting');
+                fail(t('locUnsupported'));
                 return;
             }
             navigator.geolocation.getCurrentPosition(
@@ -618,9 +624,9 @@
                 (err) => {
                     // PERMISSION_DENIED = 1
                     if (err && err.code === 1) {
-                        fail('Joylashuvga ruxsat berilmadi. Manzilni qo\'lda kiriting');
+                        fail(t('locDenied'));
                     } else {
-                        fail('Joylashuv aniqlanmadi. Manzilni qo\'lda kiriting');
+                        fail(t('locFail'));
                     }
                 },
                 { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
@@ -642,7 +648,7 @@
                     } else if (lm.isAccessRequested && lm.isAccessGranted === false) {
                         // User explicitly denied — point them to settings.
                         try { lm.openSettings && lm.openSettings(); } catch {}
-                        fail('Joylashuvga ruxsat berilmadi. Sozlamalardan ruxsat bering yoki manzilni qo\'lda kiriting');
+                        fail(t('locDeniedSettings'));
                     } else {
                         // Null without explicit denial → try browser API.
                         useGeolocation();
@@ -692,7 +698,7 @@
         // Per-field hints.
         const phoneHint = $('#phone-hint');
         if ($('#f-phone').value && !phoneOk) {
-            phoneHint.textContent = "⚠️ Telefon raqami to'liq emas: +998 (XX) XXX-XX-XX";
+            phoneHint.textContent = t('phoneWarning') + ': +998 (XX) XXX-XX-XX';
             phoneHint.classList.add('field__hint--err');
             phoneHint.hidden = false;
         } else {
@@ -701,7 +707,7 @@
 
         const addrHint = $('#address-hint');
         if (!hasAnyAddress && (name || $('#f-phone').value)) {
-            addrHint.textContent = "⚠️ Iltimos, manzilni kiriting yoki joylashuvni yuboring";
+            addrHint.textContent = t('addressWarning');
             addrHint.classList.add('field__hint--err');
             addrHint.hidden = false;
         } else {
@@ -764,7 +770,7 @@
         // if a stale UI state somehow left the button enabled.
         if (!isOpen) {
             showToast(
-                "Uzr, hozir qabul vaqtimiz tugagan. Ish vaqtimiz: " +
+                t('closedToast') +
                 ($('#closed-banner-hours').textContent || '10:00 - 03:00'),
                 'error'
             );
@@ -775,26 +781,26 @@
         const btn = $('#confirm-btn');
         const originalLabel = btn.textContent;
         btn.disabled = true;
-        btn.textContent = '⏳ Yuborilmoqda…';
+        btn.textContent = t('sending');
         haptic('light');
 
         try {
             const res = await api.createOrder(buildOrderPayload());
             if (!res || !res.ok) {
-                throw new Error((res && res.error) || 'Buyurtma rad etildi');
+                throw new Error((res && res.error) || t('orderRejected'));
             }
             haptic('success');
             // Order saved + customer/admin notified by the server.
             cart.clear();
             closeOverlay('checkout');
             closeOverlay('cart');
-            showToast('✅ Buyurtmangiz qabul qilindi! Rahmat 🧡');
+            showToast(t('orderAccepted'));
             // Close the Mini App shortly after, so the user sees the toast.
             setTimeout(() => { try { tg && tg.close(); } catch {} }, 1500);
         } catch (err) {
             console.error('createOrder failed', err);
             haptic('error');
-            showToast(err.message || 'Buyurtmani yuborishda xato. Qayta urinib ko\'ring.', 'error');
+            showToast(err.message || t('submitError'), 'error');
             btn.disabled = false;
             btn.textContent = originalLabel;
         }
@@ -832,7 +838,7 @@
 
         const head = document.createElement('div');
         head.className = 'order-card__head';
-        head.textContent = `📦 Buyurtma #${o.id} — ${formatPrice(o.total_amount)}`;
+        head.textContent = `📦 ${t('orderNo')} #${o.id} — ${formatPrice(o.total_amount)}`;
         card.appendChild(head);
 
         const date = document.createElement('div');
@@ -847,7 +853,7 @@
         (Array.isArray(o.items) ? o.items : []).forEach((it) => {
             const row = document.createElement('div');
             row.className = 'order-card__item';
-            row.textContent = `• ${it.name} — ${Number(it.quantity) || 0} ta`;
+            row.textContent = `• ${it.name} — ${Number(it.quantity) || 0} ${t('unit')}`;
             itemsBox.appendChild(row);
         });
         card.appendChild(itemsBox);
@@ -863,7 +869,7 @@
         }
         if (o.comment && String(o.comment).trim()) {
             const c = document.createElement('div');
-            c.textContent = `💬 Izoh: ${o.comment}`;
+            c.textContent = `💬 ${t('orderComment')}: ${o.comment}`;
             meta.appendChild(c);
         }
         // Only render the meta block + its divider when there's something
@@ -876,7 +882,7 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'order-reorder-btn';
-        btn.textContent = '🔁 Yana shundan buyurtma qilish';
+        btn.textContent = t('reorder');
         btn.addEventListener('click', () => reorder(o));
         card.appendChild(btn);
 
@@ -886,7 +892,7 @@
     async function loadOrders() {
         const list = $('#orders-list');
         list.innerHTML = `
-            <div class="empty-state"><p style="color: var(--c-text-muted)">Yuklanmoqda…</p></div>`;
+            <div class="empty-state"><p style="color: var(--c-text-muted)">${t('loading')}</p></div>`;
 
         try {
             const { orders } = await api.getOrders();
@@ -894,8 +900,8 @@
             if (!orders.length) {
                 list.innerHTML = `
                     <div class="empty-state">
-                        <h3>Hali buyurtmalar yo'q</h3>
-                        <p>Birinchi buyurtmangizni bering 🍔</p>
+                        <h3>${t('noOrders')}</h3>
+                        <p>${t('noOrdersHint')}</p>
                     </div>`;
                 return;
             }
@@ -904,7 +910,7 @@
             console.error('loadOrders failed', err);
             list.innerHTML = `
                 <div class="empty-state">
-                    <p style="color: var(--c-error)">Buyurtmalarni yuklashda xato.</p>
+                    <p style="color: var(--c-error)">${t('errorLoad')}</p>
                 </div>`;
         }
     }
@@ -1074,7 +1080,40 @@
         }
     }
 
+    // Resolve the user's language BEFORE first render (GET /api/user-lang).
+    // Times out to Uzbek so a slow/failed fetch never leaves the UI hidden.
+    async function resolveLang() {
+        const fetchLang = api.getUserLang().then((r) => r && r.language).catch(() => null);
+        const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 2000));
+        const lang = await Promise.race([fetchLang, timeout]);
+        window.lang = lang === 'ru' ? 'ru' : 'uz';
+    }
+
+    // Swap every static [data-i18n] text node and [data-i18n-ph] placeholder
+    // into the resolved language.
+    function applyStaticTranslations() {
+        document.querySelectorAll('[data-i18n]').forEach((el) => {
+            el.textContent = t(el.getAttribute('data-i18n'));
+        });
+        document.querySelectorAll('[data-i18n-ph]').forEach((el) => {
+            el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph')));
+        });
+    }
+
     async function boot() {
+        // Language first — the whole UI renders in it. The body is hidden
+        // (html.i18n-pending) until we reveal it here; the finally block
+        // guarantees we always reveal, even if the lang fetch throws.
+        try {
+            await resolveLang();
+            applyStaticTranslations();
+        } catch (err) {
+            console.error('[i18n] init failed:', err);
+            window.lang = window.lang || 'uz';
+        } finally {
+            document.documentElement.classList.remove('i18n-pending');
+        }
+
         wireUI();
         diagnoseTelegramLaunch();
         await cart.init();

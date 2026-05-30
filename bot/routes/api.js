@@ -11,6 +11,7 @@
 //   GET /api/products?category_id=NN            — list products in a category
 //   GET /api/products/:id                       — single product
 //   GET /api/orders                             — current user's orders
+//   GET /api/user-lang?uid=NN                   — saved UI language (public)
 // =========================================================================
 
 'use strict';
@@ -85,6 +86,30 @@ router.get('/restaurant', (_req, res) => {
         per_km_fee: cfg.PER_KM_FEE,
         min_order_total: cfg.MIN_ORDER_TOTAL,
     });
+});
+
+// -------------------------------------------------------------------------
+// GET /api/user-lang?uid=NN — the user's saved UI language ('uz' default).
+//
+// No auth needed: the Mini App calls this FIRST on boot (before rendering),
+// identified only by the uid the bot injected into its URL. The mounted
+// softTelegramAuth never rejects, so this works without initData. Unknown
+// or missing uid → 'uz', so the UI always has a language to render.
+// -------------------------------------------------------------------------
+router.get('/user-lang', async (req, res, next) => {
+    try {
+        const uid = Number(req.query.uid);
+        if (!Number.isInteger(uid) || uid <= 0) {
+            return res.json({ language: 'uz' });
+        }
+        const { rows } = await db.query(
+            'SELECT language FROM users WHERE telegram_user_id = $1',
+            [uid]
+        );
+        res.json({ language: (rows[0] && rows[0].language) || 'uz' });
+    } catch (err) {
+        next(err);
+    }
 });
 
 // -------------------------------------------------------------------------

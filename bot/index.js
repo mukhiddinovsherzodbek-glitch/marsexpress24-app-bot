@@ -23,6 +23,7 @@ const { Telegraf, Markup } = require('telegraf');
 const { message } = require('telegraf/filters');
 
 const db = require('./db');
+const i18n = require('./i18n');
 const apiRouter = require('./routes/api');
 const { softTelegramAuth } = require('./middleware/auth');
 
@@ -99,6 +100,114 @@ function webAppUrlForUser(userId) {
     }
 }
 
+// --- i18n: per-user language ---------------------------------------------
+// Pick a translation, falling back to Uzbek for any missing key/lang.
+function tr(lang, key) {
+    const L = i18n[lang] ? lang : 'uz';
+    return (i18n[L] && i18n[L][key]) || i18n.uz[key] || key;
+}
+
+/** The user's saved language, defaulting to 'uz' (also when not yet known). */
+async function getUserLang(userId) {
+    try {
+        const res = await db.query(
+            'SELECT language FROM users WHERE telegram_user_id = $1',
+            [userId]
+        );
+        return (res.rows[0] && res.rows[0].language) || 'uz';
+    } catch (err) {
+        console.error('[i18n] getUserLang failed:', err.message);
+        return 'uz';
+    }
+}
+
+/** Whether we've already onboarded this user (row exists). */
+async function userExists(userId) {
+    try {
+        const res = await db.query(
+            'SELECT 1 FROM users WHERE telegram_user_id = $1',
+            [userId]
+        );
+        return res.rowCount > 0;
+    } catch (err) {
+        console.error('[i18n] userExists failed:', err.message);
+        return false;
+    }
+}
+
+/** Upsert the user's language choice. Returns the normalized value. */
+async function setUserLang(userId, lang) {
+    const normalized = lang === 'ru' ? 'ru' : 'uz';
+    await db.query(
+        `INSERT INTO users (telegram_user_id, language)
+         VALUES ($1, $2)
+         ON CONFLICT (telegram_user_id)
+         DO UPDATE SET language = EXCLUDED.language`,
+        [userId, normalized]
+    );
+    return normalized;
+}
+
+// Two-button language picker — shared by /start (new users) and /til.
+function languageKeyboard() {
+    return Markup.inlineKeyboard([
+        [
+            Markup.button.callback('🇺🇿 O\'zbekcha', 'lang:uz'),
+            Markup.button.callback('🇷🇺 Русский', 'lang:ru'),
+        ],
+    ]);
+}
+
+// The Mini App "order" button, labelled in the given language.
+function orderKeyboard(lang, userId) {
+    if (!WEBAPP_URL) return undefined;
+    return Markup.inlineKeyboard([
+        [Markup.button.webApp(tr(lang, 'orderBtn'), webAppUrlForUser(userId))],
+    ]);
+}
+
+// Bilingual prompt shown to a brand-new user (we don't know their language
+// yet) and on /til.
+const LANG_PROMPT =
+    'Assalomu alaykum! Marsexpress24 ga xush kelibsiz 🇺🇿\n' +
+    'Здравствуйте! Добро пожаловать в Marsexpress24 🇷🇺\n\n' +
+    '🌍 Tilni tanlang / Выберите язык:';
+
+/**
+ * Send the welcome image — file_id fast-path first (instant, no upload),
+ * disk fallback otherwise (and log the returned file_id so it can be
+ * promoted into WELCOME_PHOTO_FILE_ID). Extracted so /start can always
+ * send the photo before any text, in every branch.
+ */
+async function sendWelcomePhoto(ctx) {
+    if (WELCOME_PHOTO_FILE_ID) {
+        try {
+            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID);
+            return;
+        } catch (err) {
+            console.warn('[/start] file_id photo rejected, falling back to disk:', err.message);
+        }
+    }
+    const photoPath = path.join(__dirname, 'assets', 'welcome_start.png');
+    if (!fs.existsSync(photoPath)) {
+        console.warn('[/start] welcome image missing on disk:', photoPath);
+        return;
+    }
+    try {
+        const msg = await ctx.replyWithPhoto({ source: photoPath });
+        const sizes = msg && msg.photo;
+        if (Array.isArray(sizes) && sizes.length > 0) {
+            console.log(
+                '[/start] welcome_start.png uploaded — file_id =',
+                sizes[sizes.length - 1].file_id,
+                '\n         (set this as WELCOME_PHOTO_FILE_ID env to skip re-uploads)'
+            );
+        }
+    } catch (err) {
+        console.error('[/start] disk photo send failed:', err.message);
+    }
+}
+
 bot.start(async (ctx) => {
     // Very first: silently strip any leftover reply keyboard from older
     // (pre-inline) sessions — even when we're closed, so the stale button
@@ -110,70 +219,59 @@ bot.start(async (ctx) => {
         console.warn('[/start] remove_keyboard failed:', err.message);
     }
 
-    // Outside working hours we don't show the order button — replying
-    // with a closed notice avoids inviting an order we can't fulfil.
+    // Always send the welcome image first — in every branch below.
+    await sendWelcomePhoto(ctx);
+
+    const userId = ctx.from.id;
+    const known = await userExists(userId);
+
+    // Outside working hours we don't invite orders. Returning users get the
+    // notice in their language; brand-new users (no saved language yet) see
+    // it in both languages.
     if (!isWorkingHours()) {
-        await ctx.reply(
-            'Uzr, hozir ishlamayapmiz.\n' +
-            `Ish vaqtimiz: ${WORKING_HOURS_LABEL} (Toshkent vaqti)\n` +
-            'Tez orada xizmatda bo\'lamiz!'
-        );
+        if (known) {
+            await ctx.reply(tr(await getUserLang(userId), 'closedMsg'));
+        } else {
+            await ctx.reply(i18n.uz.closedMsg + '\n\n' + i18n.ru.closedMsg);
+        }
         return;
     }
 
-    const greetingText =
-        'Assalomu alaykum! Marsexpress24 ga xush kelibsiz 🍔\n' +
-        'Buyurtma berish uchun quyidagi tugmani bosing:';
-    // Inline keyboard attached UNDER the greeting message (not a separate
-    // reply keyboard). Inline web_app buttons can't use sendData(), so the
-    // Mini App submits orders via POST /api/orders instead. The user's id
-    // is injected into the URL so the Mini App can identify them without
-    // relying on initData.
-    const greetingMarkup = WEBAPP_URL
-        ? Markup.inlineKeyboard([
-              [Markup.button.webApp('🛍️ Buyurtma berish', webAppUrlForUser(ctx.from.id))],
-          ])
-        : undefined;
-
-    // 1) Welcome image. Priority:
-    //    a) WELCOME_PHOTO_FILE_ID (or our known-good default) → instant,
-    //       Telegram serves the already-uploaded file, no disk read/upload.
-    //    b) disk upload → works, and we log the returned file_id so it can
-    //       be promoted into the env var to make future sends instant.
-    //    No sendChatAction — it only adds a round-trip and delay.
-    let photoSent = false;
-    if (WELCOME_PHOTO_FILE_ID) {
-        try {
-            await ctx.replyWithPhoto(WELCOME_PHOTO_FILE_ID);
-            photoSent = true;
-        } catch (err) {
-            console.warn('[/start] file_id photo rejected, falling back to disk:', err.message);
-        }
-    }
-    if (!photoSent) {
-        const photoPath = path.join(__dirname, 'assets', 'welcome_start.png');
-        if (fs.existsSync(photoPath)) {
-            try {
-                const msg = await ctx.replyWithPhoto({ source: photoPath });
-                const sizes = msg && msg.photo;
-                if (Array.isArray(sizes) && sizes.length > 0) {
-                    console.log(
-                        '[/start] welcome_start.png uploaded — file_id =',
-                        sizes[sizes.length - 1].file_id,
-                        '\n         (set this as WELCOME_PHOTO_FILE_ID env to skip re-uploads)'
-                    );
-                }
-            } catch (err) {
-                console.error('[/start] disk photo send failed:', err.message);
-            }
-        } else {
-            console.warn('[/start] welcome image missing on disk:', photoPath);
-        }
+    if (!known) {
+        // New user → choose a language first. The order button appears only
+        // after they pick (handled by the lang:* action below).
+        await ctx.reply(LANG_PROMPT, languageKeyboard());
+        return;
     }
 
-    // 2) Greeting + reply-keyboard button that opens the Mini App — sent
-    //    immediately after the photo.
-    await ctx.reply(greetingText, greetingMarkup);
+    // Returning user → welcome + order button straight away, in their language.
+    const lang = await getUserLang(userId);
+    await ctx.reply(tr(lang, 'welcome'), orderKeyboard(lang, userId));
+});
+
+// --- Language selection (from /start onboarding or /til) ------------------
+// Saves the choice, confirms with a toast, then replaces the picker message
+// with the welcome + order button in the chosen language (no photo re-send).
+bot.action(/^lang:(uz|ru)$/, async (ctx) => {
+    const lang = ctx.match[1] === 'ru' ? 'ru' : 'uz';
+    const userId = ctx.from.id;
+    try {
+        await setUserLang(userId, lang);
+    } catch (err) {
+        console.error('[lang] save failed:', err.message);
+    }
+    try { await ctx.answerCbQuery(tr(lang, 'langChanged')); } catch {}
+    try {
+        await ctx.editMessageText(tr(lang, 'welcome'), orderKeyboard(lang, userId));
+    } catch {
+        // Picker message too old to edit (or had no text) — send a fresh one.
+        try { await ctx.reply(tr(lang, 'welcome'), orderKeyboard(lang, userId)); } catch {}
+    }
+});
+
+// --- /til (язык): re-open the language picker -----------------------------
+bot.command(['til', 'язык'], async (ctx) => {
+    await ctx.reply(LANG_PROMPT, languageKeyboard());
 });
 
 // -------------------------------------------------------------------------
@@ -270,14 +368,10 @@ async function processOrder(order, userId, telegram) {
     }
 
     // Customer confirmation — message their chat directly (works whether
-    // the order came via sendData or via the REST endpoint).
+    // the order came via sendData or via the REST endpoint), in their language.
     try {
-        await telegram.sendMessage(
-            userId,
-            '✅ Buyurtmangiz muvaffaqiyatli qabul qilindi!\n' +
-            '🍔 Tez orada kuryer siz bilan bog\'lanadi.\n' +
-            'Rahmat! Marsexpress24 🧡'
-        );
+        const lang = await getUserLang(userId);
+        await telegram.sendMessage(userId, tr(lang, 'orderSuccess'));
         if (latitude != null && longitude != null) {
             await telegram.sendLocation(userId, Number(latitude), Number(longitude)).catch(() => {});
         }

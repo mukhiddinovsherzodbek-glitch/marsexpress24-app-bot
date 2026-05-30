@@ -9,6 +9,13 @@
     <!-- Telegram Web App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
+    <!-- Hide the UI until app.js resolves the user's language (GET
+         /api/user-lang), so a Russian user never sees a flash of Uzbek
+         text. app.js removes this class once translations are applied
+         (and after a short safety timeout if the fetch is slow). -->
+    <style>html.i18n-pending body { visibility: hidden; }</style>
+    <script>document.documentElement.classList.add('i18n-pending');</script>
+
     <!-- Google Fonts: Inter (minimal, geometric, multi-language) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -26,7 +33,7 @@
     <header class="app-header">
         <div class="brand">
             <span class="brand__name">Marsexpress24</span>
-            <span class="brand__hello">Buyurtmangizni tanlang 🍔</span>
+            <span class="brand__hello" data-i18n="brandHello">Buyurtmangizni tanlang 🍔</span>
         </div>
         <button class="cart-icon" id="cart-icon" aria-label="Savat">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
@@ -42,7 +49,7 @@
     <!-- Working-hours banner — toggled by app.js when /api/status reports closed -->
     <div class="closed-banner" id="closed-banner" hidden>
         <span>⏰</span>
-        <span>Hozir ishlamayapmiz. Ish vaqtimiz: <b id="closed-banner-hours">10:00 - 03:00</b></span>
+        <span><span data-i18n="closedBanner">Hozir ishlamayapmiz. Ish vaqtimiz:</span> <b id="closed-banner-hours">10:00 - 03:00</b></span>
     </div>
 
     <!-- =================================================================
@@ -54,7 +61,7 @@
 
             <!-- VIEW: Categories grid -->
             <div class="view view--active" id="view-categories">
-                <h1 class="page-title">Kategoriyalar</h1>
+                <h1 class="page-title" data-i18n="categories">Kategoriyalar</h1>
                 <div class="categories-grid" id="categories-grid">
                     <!-- Initial skeletons (replaced when API responds) -->
                     <div class="cat-card cat-card--skeleton">
@@ -86,7 +93,7 @@
                             <polyline points="15 18 9 12 15 6"></polyline>
                         </svg>
                     </button>
-                    <h2 class="view-title" id="products-title">Mahsulotlar</h2>
+                    <h2 class="view-title" id="products-title" data-i18n="productsTitle">Mahsulotlar</h2>
                 </div>
                 <div class="products-list" id="products-list">
                     <!-- skeletons injected by app.js when loading -->
@@ -97,7 +104,7 @@
 
         <!-- PAGE: My Orders -->
         <section class="page" id="page-orders">
-            <h1 class="page-title">Mening buyurtmalarim</h1>
+            <h1 class="page-title" data-i18n="myOrders">Mening buyurtmalarim</h1>
             <div class="orders-list" id="orders-list">
                 <!-- rendered by app.js -->
             </div>
@@ -114,7 +121,7 @@
                 <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
                 <polyline points="9 22 9 12 15 12 15 22"></polyline>
             </svg>
-            <span>Bosh sahifa</span>
+            <span data-i18n="home">Bosh sahifa</span>
         </button>
         <button class="nav-btn" data-page="orders" type="button">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
@@ -124,7 +131,7 @@
                 <line x1="9" y1="13" x2="15" y2="13"></line>
                 <line x1="9" y1="17" x2="15" y2="17"></line>
             </svg>
-            <span>Mening buyurtmalarim</span>
+            <span data-i18n="orders">Mening buyurtmalarim</span>
         </button>
     </nav>
 
@@ -135,7 +142,7 @@
         <div class="overlay__backdrop" data-close="cart"></div>
         <div class="overlay__sheet">
             <header class="overlay__header">
-                <h2 class="overlay__title">Savat</h2>
+                <h2 class="overlay__title" data-i18n="cart">Savat</h2>
                 <button class="overlay__close" data-close="cart" aria-label="Yopish">×</button>
             </header>
             <div class="overlay__body">
@@ -143,16 +150,16 @@
                     <!-- rendered by cart.js -->
                 </div>
                 <div class="cart-empty" id="cart-empty">
-                    <p>Savatingiz bo'sh</p>
-                    <span>Bosh sahifaga qaytib mahsulot tanlang</span>
+                    <p data-i18n="cartEmpty">Savatingiz bo'sh</p>
+                    <span data-i18n="cartEmptyHint">Bosh sahifaga qaytib mahsulot tanlang</span>
                 </div>
             </div>
             <footer class="overlay__footer" id="cart-footer">
                 <div class="cart-total-row">
-                    <span class="cart-total-label">JAMI:</span>
+                    <span class="cart-total-label" data-i18n="totalLabel">JAMI:</span>
                     <span class="cart-total-value" id="cart-total">0 so'm</span>
                 </div>
-                <button class="btn btn--primary" id="open-checkout" type="button">
+                <button class="btn btn--primary" id="open-checkout" type="button" data-i18n="checkout">
                     Buyurtmani rasmiylashtirish
                 </button>
                 <p class="min-order-warn" id="min-order-warn" hidden></p>
@@ -167,26 +174,27 @@
         <div class="overlay__backdrop" data-close="checkout"></div>
         <div class="overlay__sheet">
             <header class="overlay__header">
-                <h2 class="overlay__title">Rasmiylashtirish</h2>
+                <h2 class="overlay__title" data-i18n="checkoutTitle">Rasmiylashtirish</h2>
                 <button class="overlay__close" data-close="checkout" aria-label="Yopish">×</button>
             </header>
             <form class="overlay__body checkout-form" id="checkout-form" novalidate>
 
                 <label class="field">
-                    <span class="field__label">Ismingiz</span>
+                    <span class="field__label" data-i18n="name">Ismingiz</span>
                     <input
                         class="field__input"
                         type="text"
                         name="customer_name"
                         id="f-name"
                         placeholder="Sizning ismingiz"
+                        data-i18n-ph="nameplaceholder"
                         autocomplete="name"
                         required
                     />
                 </label>
 
                 <label class="field">
-                    <span class="field__label">Telefon raqami</span>
+                    <span class="field__label" data-i18n="phone">Telefon raqami</span>
                     <input
                         class="field__input"
                         type="tel"
@@ -201,10 +209,10 @@
                 </label>
 
                 <div class="field">
-                    <span class="field__label">Manzil</span>
+                    <span class="field__label" data-i18n="address">Manzil</span>
 
                     <button class="btn btn--ghost" type="button" id="loc-btn">
-                        <span id="loc-btn-label">📍 Joylashuvni avtomatik yuborish</span>
+                        <span id="loc-btn-label" data-i18n="autoLocation">📍 Joylashuvni avtomatik yuborish</span>
                     </button>
                     <span class="field__hint field__hint--ok" id="loc-status" hidden></span>
 
@@ -214,18 +222,20 @@
                         id="f-address"
                         rows="3"
                         placeholder="Masalan: Chilonzor tumani, 7-mavze, 15-uy"
+                        data-i18n-ph="addressPlaceholder"
                     ></textarea>
                     <span class="field__hint field__hint--err" id="address-hint" hidden></span>
                 </div>
 
                 <label class="field">
-                    <span class="field__label">💬 Izoh (ixtiyoriy)</span>
+                    <span class="field__label" data-i18n="comment">💬 Izoh (ixtiyoriy)</span>
                     <textarea
                         class="field__input field__input--area"
                         name="comment"
                         id="f-comment"
                         rows="2"
                         placeholder="Izoh"
+                        data-i18n-ph="commentPlaceholder"
                         maxlength="500"
                     ></textarea>
                 </label>
@@ -234,22 +244,22 @@
 
                 <div class="checkout-total-rows">
                     <div class="checkout-row">
-                        <span>Mahsulotlar:</span>
+                        <span data-i18n="subtotalLabel">Mahsulotlar:</span>
                         <span id="checkout-subtotal">0 so'm</span>
                     </div>
                     <div class="checkout-row" id="checkout-delivery-row" hidden>
-                        <span>Dostavka:</span>
-                        <span id="checkout-delivery">Bepul</span>
+                        <span data-i18n="deliveryLabel">Dostavka:</span>
+                        <span id="checkout-delivery" data-i18n="free">Bepul</span>
                     </div>
                     <div class="checkout-total">
-                        <span>JAMI:</span>
+                        <span data-i18n="totalLabel">JAMI:</span>
                         <strong id="checkout-total">0 so'm</strong>
                     </div>
                 </div>
 
                 <p class="min-order-warn" id="checkout-min-warn" hidden></p>
 
-                <button class="btn btn--primary" type="submit" id="confirm-btn" disabled>
+                <button class="btn btn--primary" type="submit" id="confirm-btn" disabled data-i18n="confirm">
                     ✅ Buyurtmani tasdiqlash
                 </button>
             </form>
@@ -341,6 +351,7 @@
     <!-- =================================================================
          App scripts (load order matters — api → cart → app)
          ================================================================= -->
+    <script src="js/i18n.js"></script>
     <script src="js/api.js"></script>
     <script src="js/cart.js"></script>
     <script src="js/app.js"></script>

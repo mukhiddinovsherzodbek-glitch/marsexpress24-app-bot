@@ -136,6 +136,28 @@
             return request('/orders' + (uid ? `?uid=${encodeURIComponent(uid)}` : ''));
         },
 
+        /**
+         * The user's saved UI language ('uz' | 'ru'). Identified by the uid
+         * the bot injects into the Mini App URL (?uid=), exactly like
+         * getOrders/createOrder. No auth needed — this drives which language
+         * the whole UI boots in, so it must resolve before first render.
+         */
+        getUserLang() {
+            let uid = '';
+            try {
+                uid = new URLSearchParams(window.location.search).get('uid') || '';
+            } catch {}
+            if (!uid) {
+                const u =
+                    window.Telegram &&
+                    window.Telegram.WebApp &&
+                    window.Telegram.WebApp.initDataUnsafe &&
+                    window.Telegram.WebApp.initDataUnsafe.user;
+                if (u && u.id) uid = String(u.id);
+            }
+            return request('/user-lang' + (uid ? `?uid=${encodeURIComponent(uid)}` : ''));
+        },
+
         /** Open/closed flag — server-side check anchored to Asia/Tashkent. */
         getStatus() {
             return request('/status');
